@@ -48,6 +48,17 @@ def enviar_sinal_telegram(par, direcao, chat_id):
     
     bot.send_message(chat_id, mensagem)
 
+def enviar_resultado_telegram(par, direcao, resultado, chat_id):
+    agora = datetime.now().strftime("%H:%M")
+    emoji_resultado = "✅" if resultado == "WIN" else "❌"
+    
+    mensagem = (
+        f"{emoji_resultado} Resultado: {resultado} no sinal de {direcao.upper()} - {par}\n"
+        f"Hora do fechamento: {agora}"
+    )
+    
+    bot.send_message(chat_id, mensagem)
+
 ultimo_sinal = None
 
 def verificar_sinais():
@@ -76,6 +87,21 @@ def verificar_sinais():
             if sinal and sinal != ultimo_sinal:
                 enviar_sinal_telegram("EUR / USD", direcao, CHAT_ID)
                 print(f"Sinal enviado: {direcao.upper()}")
+
+                preco_entrada = ultimo['Close']
+
+                time.sleep(120)  # Esperar 2 minutos (entrada + 2 proteções)
+
+                df_expiracao = buscar_dados(symbol)
+                preco_fechamento = df_expiracao.iloc[-1]['Close']
+
+                if direcao == "compra":
+                    resultado = "WIN" if preco_fechamento > preco_entrada else "LOSS"
+                else:
+                    resultado = "WIN" if preco_fechamento < preco_entrada else "LOSS"
+
+                enviar_resultado_telegram("EUR / USD", direcao, resultado, CHAT_ID)
+
                 ultimo_sinal = sinal
 
         except Exception as e:
