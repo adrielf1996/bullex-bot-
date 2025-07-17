@@ -29,11 +29,17 @@ def buscar_dados(symbol):
     data = yf.download(tickers=symbol, period="1d", interval="1m")
     return data
 
+def enviar_mensagem_telegram(mensagem, chat_id):
+    bot.send_message(chat_id, mensagem)
+
+def formatar_hora(tempo):
+    return tempo.strftime("%H:%M")
+
 def enviar_sinal_telegram(par, direcao, chat_id):
     agora = datetime.now()
-    entrada_hora = agora.strftime("%H:%M")
-    protecao1_hora = (agora + timedelta(minutes=1)).strftime("%H:%M")
-    protecao2_hora = (agora + timedelta(minutes=2)).strftime("%H:%M")
+    entrada_hora = formatar_hora(agora)
+    protecao1_hora = formatar_hora(agora + timedelta(minutes=1))
+    protecao2_hora = formatar_hora(agora + timedelta(minutes=2))
     
     emoji = "🟩" if direcao.lower() == "compra" else "🟥"
     
@@ -46,18 +52,22 @@ def enviar_sinal_telegram(par, direcao, chat_id):
         f"2️⃣ Proteção Às {protecao2_hora}"
     )
     
-    bot.send_message(chat_id, mensagem)
+    enviar_mensagem_telegram(mensagem, chat_id)
 
 def enviar_resultado_telegram(par, direcao, resultado, chat_id):
     agora = datetime.now().strftime("%H:%M")
     emoji_resultado = "✅" if resultado == "WIN" else "❌"
-    
     mensagem = (
         f"{emoji_resultado} Resultado: {resultado} no sinal de {direcao.upper()} - {par}\n"
         f"Hora do fechamento: {agora}"
     )
-    
-    bot.send_message(chat_id, mensagem)
+    enviar_mensagem_telegram(mensagem, chat_id)
+
+def verificar_resultado(preco_entrada, preco_fechamento, direcao):
+    if direcao == "compra":
+        return "WIN" if preco_fechamento > preco_entrada else "LOSS"
+    else:
+        return "WIN" if preco_fechamento < preco_entrada else "LOSS"
 
 ultimo_sinal = None
 
@@ -90,24 +100,41 @@ def verificar_sinais():
 
                 preco_entrada = ultimo['Close']
 
-                time.sleep(120)  # Esperar 2 minutos (entrada + 2 proteções)
+                # Tentativa 1 - Entrada
+                time.sleep(60)  # espera 1 minuto
+                df_1 = buscar_dados(symbol)
+                preco_fechamento_1 = df_1.iloc[-1]['Close']
+                resultado = verificar_resultado(preco_entrada, preco_fechamento_1, direcao)
+                if resultado == "WIN":
+                    enviar_resultado_telegram("EUR / USD", direcao, resultado, CHAT_ID)
+                    ultimo_sinal = sinal
+                    time.sleep(240)  # espera antes de buscar próximo sinal
+                    continue
 
-                df_expiracao = buscar_dados(symbol)
-                preco_fechamento = df_expiracao.iloc[-1]['Close']
+                # Tentativa 2 - 1ª defesa
+                time.sleep(60)  # espera mais 1 minuto
+                df_2 = buscar_dados(symbol)
+                preco_fechamento_2 = df_2.iloc[-1]['Close']
+                resultado = verificar_resultado(preco_entrada, preco_fechamento_2, direcao)
+                if resultado == "WIN":
+                    enviar_resultado_telegram("EUR / USD", direcao, resultado, CHAT_ID)
+                    ultimo_sinal = sinal
+                    time.sleep(240)
+                    continue
 
-                if direcao == "compra":
-                    resultado = "WIN" if preco_fechamento > preco_entrada else "LOSS"
-                else:
-                    resultado = "WIN" if preco_fechamento < preco_entrada else "LOSS"
-
+                # Tentativa 3 - 2ª defesa
+                time.sleep(60)  # espera mais 1 minuto
+                df_3 = buscar_dados(symbol)
+                preco_fechamento_3 = df_3.iloc[-1]['Close']
+                resultado = verificar_resultado(preco_entrada, preco_fechamento_3, direcao)
                 enviar_resultado_telegram("EUR / USD", direcao, resultado, CHAT_ID)
 
                 ultimo_sinal = sinal
+                time.sleep(240)  # espera antes de próximo sinal
 
         except Exception as e:
             print(f"Erro: {e}")
-
-        time.sleep(300)
+            time.sleep(60)  # espera e tenta novamente
 
 def start_bot():
     t = threading.Thread(target=verificar_sinais)
